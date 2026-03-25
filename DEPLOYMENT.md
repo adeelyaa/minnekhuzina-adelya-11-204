@@ -11,3 +11,5 @@
    `python build_index.py`
 6. Выполнить булев поиск:
    `python boolean_search.py --query "(roman AND empire) OR caesar"`
+7. Подсчитать TF-IDF для терминов и лемм:
+   `python calc_tfidf.py`
