@@ -13,3 +13,6 @@
    `python boolean_search.py --query "(roman AND empire) OR caesar"`
 7. Подсчитать TF-IDF для терминов и лемм:
    `python calc_tfidf.py`
+8. Выполнить векторный поиск:
+   `python vector_search.py --query "roman empire caesar" --top-k 5`
+
