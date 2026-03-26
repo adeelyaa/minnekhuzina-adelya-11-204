@@ -69,6 +69,7 @@ python boolean_search.py --query "(roman AND empire) OR caesar"
 ```bash
 python calc_tfidf.py
 ```
+
 ## Задание 5
 Скрипт `vector_search.py` реализует поисковую систему на основе векторной модели:
 - строит TF-IDF векторы документов;
