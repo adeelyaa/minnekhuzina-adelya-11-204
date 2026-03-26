@@ -1,140 +1,104 @@
-from __future__ import annotations
-
 import argparse
 import re
 from pathlib import Path
 
-from build_index import build_inverted_index, load_inverted_index
-from process_tokens import heuristic_lemma, is_good_token
+from text_processing import lemmatize_token
 
 OPERATORS = {'AND', 'OR', 'NOT'}
 PRECEDENCE = {'NOT': 3, 'AND': 2, 'OR': 1}
-ASSOCIATIVITY = {'NOT': 'right', 'AND': 'left', 'OR': 'left'}
-TOKEN_PATTERN = re.compile(r'\(|\)|AND|OR|NOT|[A-Za-z]+(?:[\'’-][A-Za-z]+)*', re.IGNORECASE)
+TOKEN_RE = re.compile(r'\(|\)|AND|OR|NOT|[A-Za-z]+', re.IGNORECASE)
 
 
-def normalize_term(term: str) -> str:
-    value = term.lower()
-    lemma = heuristic_lemma(value)
-    if is_good_token(lemma):
-        return lemma
-    return value
+def load_index(index_file: Path) -> dict[str, set[str]]:
+    index: dict[str, set[str]] = {}
+    if not index_file.exists():
+        raise FileNotFoundError(f'Index file not found: {index_file}')
+    for line in index_file.read_text(encoding='utf-8').splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        index[parts[0]] = set(parts[1:])
+    return index
 
 
-def tokenize_query(query: str) -> list[str]:
-    raw_tokens = TOKEN_PATTERN.findall(query)
-    if not raw_tokens:
-        raise ValueError('Пустой запрос.')
 
-    tokens: list[str] = []
-    for token in raw_tokens:
+def normalize_query(query: str) -> list[str]:
+    result: list[str] = []
+    for token in TOKEN_RE.findall(query):
         upper = token.upper()
         if upper in OPERATORS or token in {'(', ')'}:
-            tokens.append(upper if upper in OPERATORS else token)
+            result.append(upper if upper in OPERATORS else token)
         else:
-            normalized = normalize_term(token)
-            if not is_good_token(normalized):
-                raise ValueError(f'Некорректный термин в запросе: {token}')
-            tokens.append(normalized)
-    return tokens
+            result.append(lemmatize_token(token.lower()))
+    return result
+
 
 
 def to_postfix(tokens: list[str]) -> list[str]:
     output: list[str] = []
-    operators: list[str] = []
-
+    stack: list[str] = []
     for token in tokens:
         if token == '(':
-            operators.append(token)
+            stack.append(token)
         elif token == ')':
-            while operators and operators[-1] != '(':
-                output.append(operators.pop())
-            if not operators:
-                raise ValueError('Несогласованные скобки в запросе.')
-            operators.pop()
+            while stack and stack[-1] != '(':
+                output.append(stack.pop())
+            if not stack:
+                raise ValueError('Mismatched parentheses in query.')
+            stack.pop()
         elif token in OPERATORS:
-            while (
-                operators
-                and operators[-1] in OPERATORS
-                and (
-                    PRECEDENCE[operators[-1]] > PRECEDENCE[token]
-                    or (
-                        PRECEDENCE[operators[-1]] == PRECEDENCE[token]
-                        and ASSOCIATIVITY[token] == 'left'
-                    )
-                )
-            ):
-                output.append(operators.pop())
-            operators.append(token)
+            while stack and stack[-1] in OPERATORS and PRECEDENCE[stack[-1]] >= PRECEDENCE[token]:
+                output.append(stack.pop())
+            stack.append(token)
         else:
             output.append(token)
-
-    while operators:
-        op = operators.pop()
-        if op in {'(', ')'}:
-            raise ValueError('Несогласованные скобки в запросе.')
-        output.append(op)
-
+    while stack:
+        if stack[-1] in {'(', ')'}:
+            raise ValueError('Mismatched parentheses in query.')
+        output.append(stack.pop())
     return output
 
 
-def evaluate_postfix(postfix: list[str], inverted_index: dict[str, list[str]], all_docs: set[str]) -> list[str]:
-    stack: list[set[str]] = []
 
+def evaluate_postfix(postfix: list[str], index: dict[str, set[str]], all_docs: set[str]) -> set[str]:
+    stack: list[set[str]] = []
     for token in postfix:
         if token == 'NOT':
             if not stack:
-                raise ValueError('Некорректное использование оператора NOT.')
+                raise ValueError('Invalid query: NOT has no operand.')
             operand = stack.pop()
             stack.append(all_docs - operand)
         elif token in {'AND', 'OR'}:
             if len(stack) < 2:
-                raise ValueError(f'Некорректное использование оператора {token}.')
+                raise ValueError(f'Invalid query: {token} has too few operands.')
             right = stack.pop()
             left = stack.pop()
-            if token == 'AND':
-                stack.append(left & right)
-            else:
-                stack.append(left | right)
+            stack.append(left & right if token == 'AND' else left | right)
         else:
-            stack.append(set(inverted_index.get(token, [])))
-
+            stack.append(index.get(token, set()))
     if len(stack) != 1:
-        raise ValueError('Не удалось вычислить запрос.')
+        raise ValueError('Invalid query.')
+    return stack[0]
 
-    return sorted(stack.pop())
-
-
-def search(query: str, pages_dir: Path, index_path: Path | None = None) -> tuple[list[str], dict[str, list[str]]]:
-    if index_path is not None and index_path.exists():
-        inverted_index = load_inverted_index(index_path)
-    else:
-        inverted_index = build_inverted_index(pages_dir)
-    all_docs = {path.name for path in sorted(pages_dir.glob('*.html'))}
-    query_tokens = tokenize_query(query)
-    postfix = to_postfix(query_tokens)
-    results = evaluate_postfix(postfix, inverted_index, all_docs)
-    return results, inverted_index
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='Булев поиск по инвертированному индексу.')
-    parser.add_argument('--pages-dir', default='pages', help='Папка с HTML-файлами.')
-    parser.add_argument('--query', required=True, help='Булев запрос с операторами AND, OR, NOT и круглыми скобками.')
-    parser.add_argument('--index-file', default='inverted_index.txt', help='Файл с инвертированным индексом.')
+    parser = argparse.ArgumentParser(description='Boolean search over a lemma-based inverted index.')
+    parser.add_argument('--query', required=True, help='Boolean query string')
+    parser.add_argument('--index-file', default='inverted_index.txt', help='Path to inverted index file')
     args = parser.parse_args()
 
-    pages_dir = Path(args.pages_dir)
-    if not pages_dir.exists():
-        raise FileNotFoundError(f'Папка не найдена: {pages_dir}')
+    index = load_index(Path(args.index_file))
+    all_docs = set().union(*index.values()) if index else set()
+    normalized_tokens = normalize_query(args.query)
+    postfix = to_postfix(normalized_tokens)
+    result = sorted(evaluate_postfix(postfix, index, all_docs))
 
-    index_path = Path(args.index_file)
-    results, _ = search(args.query, pages_dir, index_path)
-
-    print(f'Запрос: {args.query}')
-    print(f'Найдено документов: {len(results)}')
-    for document in results:
-        print(document)
+    print(f'Original query: {args.query}')
+    print(f"Normalized query: {' '.join(normalized_tokens)}")
+    print(f'Found documents: {len(result)}')
+    for doc in result:
+        print(doc)
 
 
 if __name__ == '__main__':

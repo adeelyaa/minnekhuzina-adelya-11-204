@@ -11,8 +11,8 @@
 - `tokens_by_page/` — токены отдельно для каждой страницы
 - `lemmas_by_page/` — леммы отдельно для каждой страницы
 - `build_index.py` — построение инвертированного индекса
-- `inverted_index.txt` — инвертированный индекс
-- `boolean_search.py` — булев поиск по индексу
+- `inverted_index.txt` — инвертированный индекс по леммам
+- `boolean_search.py` — булев поиск по индексу с лемматизацией запроса
 - `calc_tfidf.py` — подсчёт TF-IDF для терминов и лемм
 - `term_tfidf/` — TF-IDF по терминам, один `.txt` на документ
 - `lemma_tfidf/` — TF-IDF по леммам, один `.txt` на документ
@@ -44,7 +44,7 @@ python process_tokens.py
 ```
 
 ## Задание 3
-Скрипт `build_index.py` строит инвертированный индекс, а `boolean_search.py` выполняет булев поиск по запросу, введённому строкой.
+Скрипт `build_index.py` строит инвертированный индекс по леммам, а `boolean_search.py` выполняет булев поиск по запросу, введённому строкой.
 
 Запуск:
 
@@ -52,8 +52,6 @@ python process_tokens.py
 python build_index.py
 python boolean_search.py --query "(roman AND empire) OR caesar"
 ```
-
-Поддерживаются операторы `AND`, `OR`, `NOT` и круглые скобки.
 
 ## Задание 4
 Скрипт `calc_tfidf.py`:
